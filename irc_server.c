@@ -16,11 +16,13 @@
 typedef struct client{
     int fd;
     char *username;
-    char *password;
-    int is_registered;
+    //char *password;
+    //int is_registered;
     struct client *next;
 
 }client;
+
+client *clhead = NULL;
 
 typedef struct channel{
     int member_count;
@@ -46,7 +48,7 @@ int initServer(int port){
     return servfd;
 }
 
-channel *head = NULL;
+channel *chanhead = NULL;
 
 channel* initChannel(const char *name){
     channel *chan = malloc(sizeof(channel));
@@ -62,10 +64,10 @@ channel* initChannel(const char *name){
 
 void addChannel(const char *name){
     channel *new = initChannel(name);
-    if(head == NULL) {
-        head = new;
+    if(chanhead == NULL) {
+        chanhead = new;
     }else{
-        channel *p = head;
+        channel *p = chanhead;
         while(p->next != NULL){
             p = p->next;
         }
@@ -75,11 +77,11 @@ void addChannel(const char *name){
 
 void listChan(){
     channel *p;
-    if (head == NULL){
+    if (chanhead == NULL){
         printf("There are no channels\n");
         return;
     } 
-    p = head;
+    p = chanhead;
     for(int i = 1; p != NULL; i++){
         printf("%d. %s\n", i, p->chan_name);
         p = p->next;
@@ -89,11 +91,11 @@ void listChan(){
 
 void deleteChannel(const char *name){
     channel *prev = NULL;
-    channel *current = head;
+    channel *current = chanhead;
     while(current != NULL){
         if(strcmp(current->chan_name, name) == 0){
             if (prev == NULL) {
-                head = current->next;
+                chanhead = current->next;
             } else {
                 prev->next = current->next;
             }
@@ -111,19 +113,23 @@ void deleteChannel(const char *name){
 }
 
 void memfree(){
-    channel *current = head;
+    channel *current = chanhead;
     channel *next;
     while(current != NULL){
         next = current->next;
+        for(int i; current->members[i] != NULL; i++){
+            free(current->members[i]);
+        }
+
         free(current);
         current = next;
     }
-    head = NULL;
+    chanhead = NULL;
     return;
 }
 
 void broadcastMessage(const char *chan_name, client *sender, const char *message){
-    channel *p = head;
+    channel *p = chanhead;
     while(p != NULL){
         if(strcmp(chan_name, p->chan_name) == 0){
             break;
@@ -150,6 +156,18 @@ void broadcastMessage(const char *chan_name, client *sender, const char *message
     
 }
 
+//to check later
+client* addClient(const char *username, int fd){
+    client *cli = malloc(sizeof(client));
+    if (cli == NULL){
+        fprintf(stderr, "Failed to allocate memory\n");
+        return NULL;
+    }
+    memset(cli, 0, sizeof(channel));
+    strlcpy(cli->username, username, USERNAME_STRLEN);
+    cli->next = NULL;
+    return cli;
+}
 
 int main(void){
 
@@ -159,6 +177,9 @@ int main(void){
     printf("----\n");
     addChannel("chan2");
     listChan();
+
+    char buff[1024];
+    size_t numbytes;
 
     memfree();
 
