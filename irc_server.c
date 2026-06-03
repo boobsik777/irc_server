@@ -31,6 +31,37 @@ typedef struct channel{
     struct channel *next;
 }channel;
 
+channel *chanhead = NULL;
+
+int initServer(int port);
+channel* initChannel(const char *name);
+void addChannel(const char *name);
+void listChan();
+void deleteChannel(const char *name);
+void memfree();
+void broadcastMessage(const char *chan_name, client *sender, const char *message);
+
+
+
+
+
+int main(void){
+
+    initServer(6667);
+    addChannel("chan1");
+    listChan();
+    printf("----\n");
+    addChannel("chan2");
+    listChan();
+
+    char buff[1024];
+    size_t numbytes;
+
+    memfree();
+
+    return 0;
+}
+
 int initServer(int port){
     int servfd = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in addr;
@@ -47,8 +78,6 @@ int initServer(int port){
     listen(servfd, 10);
     return servfd;
 }
-
-channel *chanhead = NULL;
 
 channel* initChannel(const char *name){
     channel *chan = malloc(sizeof(channel));
@@ -117,10 +146,12 @@ void memfree(){
     channel *next;
     while(current != NULL){
         next = current->next;
-        for(int i; current->members[i] != NULL; i++){
-            free(current->members[i]);
-        }
 
+        for(int i = 0; i < MAX_CONNECTED; i++){
+            if(current->members[i] != NULL){
+                current->members[i] = NULL;
+            };
+        }
         free(current);
         current = next;
     }
@@ -167,21 +198,4 @@ client* addClient(const char *username, int fd){
     strlcpy(cli->username, username, USERNAME_STRLEN);
     cli->next = NULL;
     return cli;
-}
-
-int main(void){
-
-    initServer(6667);
-    addChannel("chan1");
-    listChan();
-    printf("----\n");
-    addChannel("chan2");
-    listChan();
-
-    char buff[1024];
-    size_t numbytes;
-
-    memfree();
-
-    return 1;
 }
