@@ -19,10 +19,8 @@ typedef struct client{
     //char *password;
     //int is_registered;
     struct client *next;
-
 }client;
-
-client *clhead = NULL;
+client *clihead = NULL;
 
 typedef struct channel{
     int member_count;
@@ -30,45 +28,66 @@ typedef struct channel{
     char chan_name[CHANNEL_NAME_STRLEN];
     struct channel *next;
 }channel;
-
 channel *chanhead = NULL;
 
-int initServer(int port);
-channel* initChannel(const char *name);
-void addChannel(const char *name);
-void listChan();
-void deleteChannel(const char *name);
-void memfree();
+
+int serverInit(int port);
+
+channel* chanInit(const char *name);
+
+void chanAdd(const char *name);
+
+void chanList();
+
+void chanDel(const char *name);
+
+void chanFree();
+
 void broadcastMessage(const char *chan_name, client *sender, const char *message);
 
+client* clientAdd(const char *username, int fd);
 
+void clientFree(client *head);
+
+void clientList();
 
 
 
 int main(void){
 
-    initServer(6667);
-    addChannel("chan1");
-    listChan();
+    serverInit(6667);
+    chanAdd("chan1");
+    chanAdd("matika");
+    chanAdd("slovencina");
+    chanAdd("elektronika");
+    chanList();
     printf("----\n");
-    addChannel("chan2");
-    listChan();
+
+    printf("deleting slovencina\n");
+    chanDel("slovencina");
+
+    chanList();
 
     char buff[1024];
     size_t numbytes;
+    printf("calling chanFree()\n");
+    chanFree();
+    chanList();
 
-    memfree();
-
+    clientAdd("Fero", 5);
+    clientList();
     return 0;
 }
 
-int initServer(int port){
+int serverInit(int port){
     int servfd = socket(AF_INET, SOCK_STREAM, 0);
+    if(servfd == -1){
+        fprintf(stderr, "serverInit(): Failed to open socket, return code %d\n", servfd);
+        return servfd;
+    }
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
     
-    if(servfd == -1) return servfd;
-
     int option = 1; 
     setsockopt(servfd, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option));
     addr.sin_port = htons(port);
@@ -79,10 +98,10 @@ int initServer(int port){
     return servfd;
 }
 
-channel* initChannel(const char *name){
+channel* chanInit(const char *name){
     channel *chan = malloc(sizeof(channel));
     if (chan == NULL){
-        fprintf(stderr, "Failed to allocate memory\n");
+        fprintf(stderr, "chanInit(): Failed to allocate memory\n");
         return NULL;
     }
     memset(chan, 0, sizeof(channel));
@@ -91,8 +110,8 @@ channel* initChannel(const char *name){
     return chan;
 }
 
-void addChannel(const char *name){
-    channel *new = initChannel(name);
+void chanAdd(const char *name){
+    channel *new = chanInit(name);
     if(chanhead == NULL) {
         chanhead = new;
     }else{
@@ -104,21 +123,22 @@ void addChannel(const char *name){
     }
 }
 
-void listChan(){
+void chanList(){
     channel *p;
     if (chanhead == NULL){
-        printf("There are no channels\n");
+        printf("chanList(): There are no channels\n");
         return;
     } 
     p = chanhead;
+    printf("chanList(): Alive channels:\n");
     for(int i = 1; p != NULL; i++){
-        printf("%d. %s\n", i, p->chan_name);
+        printf("chanList(): %d. %s\n", i, p->chan_name);
         p = p->next;
     }
     return;
 }
 
-void deleteChannel(const char *name){
+void chanDel(const char *name){
     channel *prev = NULL;
     channel *current = chanhead;
     while(current != NULL){
@@ -128,11 +148,12 @@ void deleteChannel(const char *name){
             } else {
                 prev->next = current->next;
             }
+            printf("chanDel(): Deleted channel \"%s\"\n", name);
             free(current);
             return;
         }else{
             if(current->next == NULL){
-                printf("Channel \"%s\" doesn't exist\n", name);
+                printf("chanDel(): Channel \"%s\" doesn't exist\n", name);
                 return;
             }
             prev = current;
@@ -141,7 +162,7 @@ void deleteChannel(const char *name){
     }
 }
 
-void memfree(){
+void chanFree(){
     channel *current = chanhead;
     channel *next;
     while(current != NULL){
@@ -170,7 +191,7 @@ void broadcastMessage(const char *chan_name, client *sender, const char *message
 
     if(p == NULL){
         char err[128];
-        snprintf(err, sizeof(err), "Error: channel %s does not exist\n", chan_name);
+        snprintf(err, sizeof(err), "broadcastMessage(): Error: channel %s does not exist\n", chan_name);
         send(sender->fd, err, strlen(err), 0);
         return;
     }
@@ -188,14 +209,31 @@ void broadcastMessage(const char *chan_name, client *sender, const char *message
 }
 
 //to check later
-client* addClient(const char *username, int fd){
+client* clientAdd(const char *username, int fd){
     client *cli = malloc(sizeof(client));
     if (cli == NULL){
-        fprintf(stderr, "Failed to allocate memory\n");
+        fprintf(stderr, "clientAdd(): Failed to allocate memory\n");
         return NULL;
     }
-    memset(cli, 0, sizeof(channel));
+    if(clihead == NULL){
+        clihead = cli;
+    }
     strlcpy(cli->username, username, USERNAME_STRLEN);
     cli->next = NULL;
     return cli;
+}
+
+void clientList(){
+    client *p;
+    if (clihead == NULL){
+        printf("clientList(): There are no clients connected\n");
+        return;
+    } 
+    p = clihead;
+    printf("clientList(): Connected clients:\n");
+    for(int i = 1; p != NULL; i++){
+        printf("clientList(): %d. %s\n", i, p->username);
+        p = p->next;
+    }
+    return;
 }
