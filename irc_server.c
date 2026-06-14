@@ -15,7 +15,7 @@
 
 typedef struct client{
     int fd;
-    char *username;
+    char username[USERNAME_STRLEN];
     //char *password;
     //int is_registered;
     struct client *next;
@@ -47,9 +47,11 @@ void broadcastMessage(const char *chan_name, client *sender, const char *message
 
 client* clientAdd(const char *username, int fd);
 
-void clientFree(client *head);
+void clientFree(client *head); // just a declaration, need to finish
 
 void clientList();
+
+void clientDel(int fd); // just a declaration, need to finish
 
 
 
@@ -208,7 +210,6 @@ void broadcastMessage(const char *chan_name, client *sender, const char *message
     
 }
 
-//to check later
 client* clientAdd(const char *username, int fd){
     client *cli = malloc(sizeof(client));
     if (cli == NULL){
