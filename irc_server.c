@@ -47,13 +47,13 @@ void broadcastMessage(const char *chan_name, client *sender, const char *message
 
 client* clientAdd(const char *username, int fd);
 
-void clientFree(client *head); // just a declaration, need to finish
+void clientFree(); 
 
 void clientList();
 
-void clientDel(int fd); // just a declaration, need to finish
+void clientDel(int fd); // finish removing from channel array
 
-
+// need to implement poll()
 
 int main(void){
 
@@ -166,7 +166,7 @@ void chanDel(const char *name){
 
 void chanFree(){
     channel *current = chanhead;
-    channel *next;
+    channel *next = NULL;
     while(current != NULL){
         next = current->next;
 
@@ -218,6 +218,12 @@ client* clientAdd(const char *username, int fd){
     }
     if(clihead == NULL){
         clihead = cli;
+    }else{
+        client *p = clihead;
+        while(p->next != NULL){
+            p = p->next;
+        }
+        p->next = cli;
     }
     strlcpy(cli->username, username, USERNAME_STRLEN);
     cli->next = NULL;
@@ -225,6 +231,7 @@ client* clientAdd(const char *username, int fd){
 }
 
 void clientList(){
+
     client *p;
     if (clihead == NULL){
         printf("clientList(): There are no clients connected\n");
@@ -236,5 +243,41 @@ void clientList(){
         printf("clientList(): %d. %s\n", i, p->username);
         p = p->next;
     }
+    return;
+}
+
+void clientDel(int fd){
+    client *prev = NULL;
+    client *current = clihead;
+    while(current != NULL){
+        if(current->fd == fd){
+            if (prev == NULL) {
+                clihead = current->next;
+            } else {
+                prev->next = current->next;
+            }
+            printf("clientDel(): Deleted client \"%s\", FD: %d\n", current->username, fd);
+            free(current);
+            return;
+        }else{
+            if(current->next == NULL){
+                printf("clientDel(): Channel \"%s\", FD: %d doesn't exist\n", current->username, fd);
+                return;
+            }
+            prev = current;
+            current = current->next;
+        }
+    }
+}
+
+void clientFree(){
+    client *current = clihead;
+    client *next = NULL;
+    while(current != NULL){
+        next = current->next;
+        free(current);
+        current = next;
+    }
+    clihead = NULL;
     return;
 }
