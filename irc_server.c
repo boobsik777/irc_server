@@ -83,7 +83,7 @@ int main(void){
 
 int serverInit(int port){
     int servfd = socket(AF_INET, SOCK_STREAM, 0);
-    if(servfd == -1){
+    if (servfd == -1){
         fprintf(stderr, "serverInit(): Failed to open socket, return code %d\n", servfd);
         return servfd;
     }
@@ -95,34 +95,50 @@ int serverInit(int port){
     addr.sin_port = htons(port);
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = INADDR_ANY;
-    bind(servfd, (struct sockaddr *)&addr, sizeof(addr));
-    listen(servfd, 10);
+
+    if (bind(servfd, (struct sockaddr *)&addr, sizeof(addr)) < 0){
+        perror("serverInit(): Bind failed!");
+        close(servfd);
+        return -1;
+    };
+
+    if (listen(servfd, 10) < 0) {
+    perror("serverInit(): Listen failed");
+    close(servfd);
+    return -1;
+    }
     return servfd;
 }
 
 channel* chanInit(const char *name){
     channel *chan = malloc(sizeof(channel));
     if (chan == NULL){
-        fprintf(stderr, "chanInit(): Failed to allocate memory\n");
+        fprintf(stderr, "chanInit(): Failed to allocate memory\n");     
         return NULL;
     }
     memset(chan, 0, sizeof(channel));
-    strlcpy(chan->chan_name, name, CHANNEL_NAME_STRLEN);
+    snprintf(chan->chan_name, CHANNEL_NAME_STRLEN, "%s", name);
     chan->next = NULL;
     return chan;
 }
 
 void chanAdd(const char *name){
-    channel *new = chanInit(name);
-    if(chanhead == NULL) {
-        chanhead = new;
-    }else{
-        channel *p = chanhead;
-        while(p->next != NULL){
-            p = p->next;
+    channel *p = chanhead;
+    while (p != NULL) {
+        if (strcmp(p->chan_name, name) == 0) {
+            printf("chanAdd(): Channel \"%s\" already exists\n", name);
+            return;
         }
-        p->next = new;
+        p = p->next;
     }
+
+    channel *new = chanInit(name);
+    if (new == NULL){
+        return;
+    }
+    new->next = chanhead;
+    chanhead = new;
+    
 }
 
 void chanList(){
@@ -133,7 +149,7 @@ void chanList(){
     } 
     p = chanhead;
     printf("chanList(): Alive channels:\n");
-    for(int i = 1; p != NULL; i++){
+    for (int i = 1; p != NULL; i++){
         printf("chanList(): %d. %s\n", i, p->chan_name);
         p = p->next;
     }
@@ -143,38 +159,43 @@ void chanList(){
 void chanDel(const char *name){
     channel *prev = NULL;
     channel *current = chanhead;
-    while(current != NULL){
-        if(strcmp(current->chan_name, name) == 0){
-            if (prev == NULL) {
-                chanhead = current->next;
-            } else {
-                prev->next = current->next;
-            }
-            printf("chanDel(): Deleted channel \"%s\"\n", name);
-            free(current);
-            return;
-        }else{
-            if(current->next == NULL){
-                printf("chanDel(): Channel \"%s\" doesn't exist\n", name);
-                return;
-            }
-            prev = current;
-            current = current->next;
-        }
+    while (current != NULL && strcmp(current->chan_name, name) != 0){
+        prev = current;
+        current = current->next;
     }
+
+    if (current == NULL){
+        printf("chanDel(): Channel \"%s\" doesn't exist\n", name);
+        return;
+    }
+  
+    if (prev == NULL) {
+        chanhead = current->next;
+    }else{
+        prev->next = current->next;
+    }
+
+    printf("chanDel(): Deleted channel \"%s\"\n", name);
+    
+    for (int i = 0; i < MAX_CONNECTED; i++){
+    current->members[i] = NULL;    
+    }
+    free(current);
+    return;
 }
 
 void chanFree(){
     channel *current = chanhead;
     channel *next = NULL;
-    while(current != NULL){
+    while (current != NULL){
         next = current->next;
 
-        for(int i = 0; i < MAX_CONNECTED; i++){
-            if(current->members[i] != NULL){
+        for (int i = 0; i < MAX_CONNECTED; i++){
+            if (current->members[i] != NULL){
                 current->members[i] = NULL;
             };
         }
+
         free(current);
         current = next;
     }
@@ -183,50 +204,82 @@ void chanFree(){
 }
 
 void broadcastMessage(const char *chan_name, client *sender, const char *message){
-    channel *p = chanhead;
-    while(p != NULL){
-        if(strcmp(chan_name, p->chan_name) == 0){
-            break;
-        }
-        p = p->next;
+    channel *chan = chanhead;
+    while (chan != NULL && strcmp(chan->chan_name, chan_name) != 0) {
+        chan = chan->next;
     }
 
-    if(p == NULL){
-        char err[128];
-        snprintf(err, sizeof(err), "broadcastMessage(): Error: channel %s does not exist\n", chan_name);
-        send(sender->fd, err, strlen(err), 0);
+    if (chan == NULL){
+        if (sender != NULL){
+            char err[128];
+            snprintf(err, sizeof(err), "broadcastMessage(): Error: channel %s does not exist\n", chan_name);
+            send(sender->fd, err, strlen(err), 0);
+        }
         return;
     }
 
-    char buffer[512];
-    snprintf(buffer, sizeof(buffer), "[%s] %s : %s\n", p->chan_name, sender->username, message);
+    char buffer[1024];
 
-    for(int i = 0; i<MAX_CONNECTED; i++){
-        client *member = p->members[i];
-        if(member != NULL && member->fd != sender->fd)
-        send(member->fd, buffer, strlen(buffer), 0);
+    char sender_name[USERNAME_STRLEN];
+    if (sender != NULL) {
+        snprintf(sender_name, sizeof(sender_name), "%s", sender->username);
+    }else{
+        snprintf(sender_name, sizeof(sender_name), "SYSTEM");
+    }
+
+    int msg_len = snprintf(buffer, sizeof(buffer), "[%s] %s: %s\n", chan->chan_name, sender_name, message);
+    if (msg_len >= sizeof(buffer)) {
+        msg_len = sizeof(buffer) - 1; // Prevent truncation overflows
+    }
+
+    int checked_members = 0;
+    for (int i = 0; i < MAX_CONNECTED; i++) {
+        // Optimization: stop iterating early if we've already processed all active channel members
+        if (checked_members >= chan->member_count) {
+            break;
+        }
+
+        client *member = chan->members[i];
+        if (member != NULL) {
+            checked_members++; // Count active member found
+
+            if (sender == NULL){
+                // System message: send to everyone in the channel
+                send(member->fd, buffer, msg_len, 0);
+            }else{
+                // User message: send to everyone EXCEPT the sender
+                if (member->fd != sender->fd){
+                    send(member->fd, buffer, msg_len, 0);
+                }
+            }
+        }
     }
     return;
     
 }
 
 client* clientAdd(const char *username, int fd){
+    client *p = clihead;
+    while (p != NULL){
+        if (p->fd == fd || strcmp(p->username, username) == 0) {
+            fprintf(stderr, "clientAdd(): Client with FD %d or username '%s' already exists\n", fd, username);
+            return NULL;
+        }
+        p = p->next;
+    }
+
     client *cli = malloc(sizeof(client));
     if (cli == NULL){
         fprintf(stderr, "clientAdd(): Failed to allocate memory\n");
         return NULL;
     }
-    if(clihead == NULL){
-        clihead = cli;
-    }else{
-        client *p = clihead;
-        while(p->next != NULL){
-            p = p->next;
-        }
-        p->next = cli;
-    }
-    strlcpy(cli->username, username, USERNAME_STRLEN);
-    cli->next = NULL;
+
+    cli->fd = fd;
+    snprintf(cli->username, USERNAME_STRLEN, "%s", username);
+    
+    cli->next = clihead;
+    clihead = cli;
+    
     return cli;
 }
 
@@ -239,7 +292,7 @@ void clientList(){
     } 
     p = clihead;
     printf("clientList(): Connected clients:\n");
-    for(int i = 1; p != NULL; i++){
+    for (int i = 1; p != NULL; i++){
         printf("clientList(): %d. %s\n", i, p->username);
         p = p->next;
     }
@@ -249,32 +302,48 @@ void clientList(){
 void clientDel(int fd){
     client *prev = NULL;
     client *current = clihead;
-    while(current != NULL){
-        if(current->fd == fd){
-            if (prev == NULL) {
-                clihead = current->next;
-            } else {
-                prev->next = current->next;
-            }
-            printf("clientDel(): Deleted client \"%s\", FD: %d\n", current->username, fd);
-            free(current);
-            return;
-        }else{
-            if(current->next == NULL){
-                printf("clientDel(): Channel \"%s\", FD: %d doesn't exist\n", current->username, fd);
-                return;
-            }
-            prev = current;
-            current = current->next;
-        }
+
+    while(current != NULL && current->fd != fd){
+        prev = current;
+        current = current->next;
     }
+
+    if(current == NULL){
+        printf("clientDel(): Client with FD: %d doesn't exist\n", fd);
+        return;
+    }
+        
+    channel *chan = chanhead;
+    while(chan != NULL){
+        for(int i = 0; i < MAX_CONNECTED; i++){
+            if(chan->members[i] == current){
+                chan->members[i] = NULL;
+                chan->member_count--;
+                break;
+            }
+        }
+        chan = chan->next;
+    }
+
+    if (prev == NULL) {
+        clihead = current->next;
+    } else {
+        prev->next = current->next;
+    }
+
+    printf("clientDel(): Deleted client \"%s\", FD: %d\n", current->username, fd);
+    close(current->fd);
+    free(current);
+    return;
+
 }
 
 void clientFree(){
     client *current = clihead;
     client *next = NULL;
-    while(current != NULL){
+    while (current != NULL){
         next = current->next;
+        close(current->fd);
         free(current);
         current = next;
     }
