@@ -42,9 +42,6 @@ void memfree();
 void broadcastMessage(const char *chan_name, client *sender, const char *message);
 
 
-
-
-
 int main(void){
 
     initServer(6667);
@@ -61,6 +58,8 @@ int main(void){
 
     return 0;
 }
+
+
 
 int initServer(int port){
     int servfd = socket(AF_INET, SOCK_STREAM, 0);
