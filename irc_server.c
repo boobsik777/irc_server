@@ -8,6 +8,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <errno.h>
+#include <poll.h>
 
 #define USERNAME_STRLEN 20
 #define CHANNEL_NAME_STRLEN 255
@@ -16,6 +17,7 @@
 typedef struct client{
     int fd;
     char username[USERNAME_STRLEN];
+    char ip[INET_ADDRSTRLEN];
     //char *password;
     //int is_registered;
     struct client *next;
@@ -45,7 +47,7 @@ void chanFree();
 
 void broadcastMessage(const char *chan_name, client *sender, const char *message);
 
-client* clientAdd(const char *username, int fd);
+client* clientAdd(const char *username, int fd, const char *ip);
 
 void clientFree(); 
 
@@ -53,33 +55,45 @@ void clientList();
 
 void clientDel(int fd); // finish removing from channel array
 
-// need to implement poll()
+client* clientFind(int fd);
+
+
+
+
 
 int main(void){
+    int servfd = serverInit(6667);
+    struct pollfd fds[MAX_CONNECTED];
 
-    serverInit(6667);
-    chanAdd("chan1");
-    chanAdd("matika");
-    chanAdd("slovencina");
-    chanAdd("elektronika");
-    chanList();
-    printf("----\n");
+    fds[0].fd = servfd;
+    fds[0].events = POLLIN;
 
-    printf("deleting slovencina\n");
-    chanDel("slovencina");
+    int count = 1;
 
-    chanList();
+    if (fds[0].revents & POLLIN){
+        struct sockaddr_in cli_addr;
+        socklen_t addr_len = sizeof(cli_addr);
+        
+        int new_fd = accept(servfd, (struct sockaddr *)&cli_addr, &addr_len);
 
-    char buff[1024];
-    size_t numbytes;
-    printf("calling chanFree()\n");
-    chanFree();
-    chanList();
+        if (new_fd >= 0 && count < MAX_CONNECTED){
+            char ip_str[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &(cli_addr.sin_addr), ip_str, sizeof(ip_str));
+            printf("Accepted connection from %s on FD %d\n", ip_str, new_fd);
+            clientAdd("Guest", new_fd, ip_str);
+            
+            fds[count].fd = new_fd;
+            fds[count].events = POLLIN;
+            count++;
+        }
+    }
 
-    clientAdd("Fero", 5);
-    clientList();
     return 0;
 }
+
+
+
+
 
 int serverInit(int port){
     int servfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -258,7 +272,7 @@ void broadcastMessage(const char *chan_name, client *sender, const char *message
     
 }
 
-client* clientAdd(const char *username, int fd){
+client* clientAdd(const char *username, int fd, const char *ip){
     client *p = clihead;
     while (p != NULL){
         if (p->fd == fd || strcmp(p->username, username) == 0) {
@@ -277,6 +291,12 @@ client* clientAdd(const char *username, int fd){
     cli->fd = fd;
     snprintf(cli->username, USERNAME_STRLEN, "%s", username);
     
+    if(ip != NULL){
+        snprintf(cli->ip, sizeof(cli->ip), "%s", ip);
+    }else{
+        snprintf(cli->ip, sizeof(cli->ip), "0.0.0.0");
+    }
+
     cli->next = clihead;
     clihead = cli;
     
@@ -349,4 +369,15 @@ void clientFree(){
     }
     clihead = NULL;
     return;
+}
+
+client* clientFind(int fd){
+    client* curr = clihead;
+    while (curr != NULL){
+        if (curr->fd == fd){
+            return curr;
+        }
+        curr = curr->next;
+    }
+    return NULL;
 }
