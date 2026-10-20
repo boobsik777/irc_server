@@ -13,11 +13,14 @@
 #define USERNAME_STRLEN 20
 #define CHANNEL_NAME_STRLEN 255
 #define MAX_CONNECTED 100
+#define BUF_SIZE 512
 
 typedef struct client{
     int fd;
     char username[USERNAME_STRLEN];
     char ip[INET_ADDRSTRLEN];
+    char buf[BUF_SIZE];
+    int bufLen;
     //char *password;
     //int is_registered;
     struct client *next;
@@ -57,36 +60,17 @@ void clientDel(int fd); // finish removing from channel array
 
 client* clientFind(int fd);
 
+int clientData(client *cli);
+
+void parseBuf(client *cli);
+
 
 
 
 
 int main(void){
     int servfd = serverInit(6667);
-    struct pollfd fds[MAX_CONNECTED];
-
-    fds[0].fd = servfd;
-    fds[0].events = POLLIN;
-
-    int count = 1;
-
-    if (fds[0].revents & POLLIN){
-        struct sockaddr_in cli_addr;
-        socklen_t addr_len = sizeof(cli_addr);
-        
-        int new_fd = accept(servfd, (struct sockaddr *)&cli_addr, &addr_len);
-
-        if (new_fd >= 0 && count < MAX_CONNECTED){
-            char ip_str[INET_ADDRSTRLEN];
-            inet_ntop(AF_INET, &(cli_addr.sin_addr), ip_str, sizeof(ip_str));
-            printf("Accepted connection from %s on FD %d\n", ip_str, new_fd);
-            clientAdd("Guest", new_fd, ip_str);
-            
-            fds[count].fd = new_fd;
-            fds[count].events = POLLIN;
-            count++;
-        }
-    }
+    serverLoop(servfd);
 
     return 0;
 }
@@ -122,6 +106,45 @@ int serverInit(int port){
     return -1;
     }
     return servfd;
+}
+
+void serverLoop(int servfd){
+    struct pollfd fds[MAX_CONNECTED];
+
+    fds[0].fd = servfd;
+    fds[0].events = POLLIN;
+
+    int count = 1;
+    
+    while(1){
+        int poll_count = poll(fds, count, -1);
+        if (poll_count < 0){
+            perror("poll error");
+            break;
+        }
+        if (fds[0].revents & POLLIN){
+            struct sockaddr_in cli_addr;
+            socklen_t addr_len = sizeof(cli_addr);
+
+            int new_fd = accept(servfd, (struct sockaddr *)&cli_addr, &addr_len);
+
+            if (new_fd >= 0 && count < MAX_CONNECTED){
+                char ip_str[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &(cli_addr.sin_addr), ip_str, sizeof(ip_str));
+                printf("Accepted connection from %s on FD %d\n", ip_str, new_fd);
+                clientAdd("Guest", new_fd, ip_str);
+
+                fds[count].fd = new_fd;
+                fds[count].events = POLLIN;
+                count++;
+            }
+        }else{
+            for(int i = 1; i < count; i++){    
+                while(!(fds[i].revents & POLLIN))
+                    clientFind(fds[i].fd);
+            }
+        }
+    }
 }
 
 channel* chanInit(const char *name){
@@ -380,4 +403,64 @@ client* clientFind(int fd){
         curr = curr->next;
     }
     return NULL;
+}
+
+int clientData(client *cli){
+    int free = BUF_SIZE - cli->bufLen;
+
+    if (free == 0){
+        fprintf(stderr, "FD %d: Buffer full, disconnecting\n", cli->fd);
+        return -1;
+    }
+
+    ssize_t recieved = recv(cli->fd, cli->buf, free, 0);
+
+    if (recieved < 0){
+        if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK){
+            return 0;
+        }
+        perror("recv() error");
+        return -1;
+    }
+
+    if (recieved == 0){
+        printf("FD %d: Connection closed\n", cli->fd);
+        return -1;
+    }
+
+    cli->bufLen += recieved;
+
+
+}
+
+void parseBuf(client *cli){
+    char* start = cli->buf;
+    int remaining = cli->bufLen;
+    char* nl = NULL;
+
+    while(nl = memchr(start, "\n", remaining) != NULL){
+        int len = nl - start; // Bytes up to '\n'
+
+        if (len > 0 && start[len - 1] == '\r') {
+            len--;
+        }
+
+        start[len] = '\0';
+
+        if (len > 0) {
+            printf("[FD %d] Received: %s\n", cli->fd, start);
+            // execute_irc_command(cli, start);
+        }
+
+        int bytes_processed = len + 1;
+        start += bytes_processed;
+        remaining -= bytes_processed;
+    }
+
+    if (remaining > 0 && start != cli->buf) {
+        memmove(cli->buf, start, remaining);
+    }
+
+    cli->bufLen = remaining;
+
 }
