@@ -1,6 +1,24 @@
 
 # Change Log
 
+## [Unreleased] - 20-10-2026
+
+### Added
+
+- Added `BUF_SIZE` macro defined as 512.
+
+- **struct client**: Added `buf` buffer array and `bufLen` tracking field for incoming socket data streams.
+
+- **serverLoop()**: Implemented a continuous server event loop using `poll()` to manage incoming connections and network data.
+
+- **clientData()**: Implemented socket stream reading via `recv()`, error handling for interruptions, non-blocking states (EAGAIN/EWOULDBLOCK), buffer overflow protection, and connection closure detection.
+
+- **parseBuf()**: Implemented line-by-line message parsing, newline and carriage return (\r\n) handling, and leftover byte memory shifting using `memmove()`.
+
+### Changed
+
+### Fixed
+
 ## [Unreleased] - 28-9-2026
 
 ### Added
