@@ -56,7 +56,7 @@ void clientFree();
 
 void clientList();
 
-void clientDel(int fd); // finish removing from channel array
+void clientDel(int fd);
 
 client* clientFind(int fd);
 
@@ -95,7 +95,7 @@ int serverInit(int port){
     addr.sin_addr.s_addr = INADDR_ANY;
 
     if (bind(servfd, (struct sockaddr *)&addr, sizeof(addr)) < 0){
-        perror("serverInit(): Bind failed!");
+        perror("serverInit(): Bind failed");
         close(servfd);
         return -1;
     };
@@ -119,7 +119,7 @@ void serverLoop(int servfd){
     while(1){
         int poll_count = poll(fds, count, -1);
         if (poll_count < 0){
-            perror("poll error");
+            perror("poll() error");
             break;
         }
         if (fds[0].revents & POLLIN){
